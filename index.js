@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits, ChannelType } = require('discord.js');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
-const TIMEOUT_DURATION_MS = 60 * 60 * 1000;
+const TIMEOUT_DURATION_MS = 24 * 60 * 60 * 1000;
 
 if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN environment variable.');
