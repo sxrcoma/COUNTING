@@ -2,7 +2,9 @@ const { Client, GatewayIntentBits, ChannelType } = require('discord.js');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
+
 const TIMEOUT_DURATION_MS = 24 * 60 * 60 * 1000;
+const TIMEOUT_LABEL = '1 day';
 
 if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN environment variable.');
@@ -29,6 +31,7 @@ let lastCounterId = null;
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Watching counting channel: ${COUNTING_CHANNEL_ID}`);
+  console.log(`Timeout duration: ${TIMEOUT_DURATION_MS}ms (${TIMEOUT_LABEL})`);
 });
 
 client.on('messageCreate', async (message) => {
@@ -92,14 +95,24 @@ async function handleFailure(message, reason) {
 
   if (!member.moderatable) {
     await message.channel.send(
-      `I could not timeout ${failedUser} for 1 hour. Make sure I have **Moderate Members** and that my role is above theirs.`
+      `I could not timeout ${failedUser} for **${TIMEOUT_LABEL}**. Make sure I have **Moderate Members** and that my role is above theirs.`
     );
     return;
   }
 
   try {
+    console.log(`Applying timeout to ${failedUser.tag}: ${TIMEOUT_DURATION_MS}ms (${TIMEOUT_LABEL})`);
+
     await member.timeout(TIMEOUT_DURATION_MS, 'Broke the counting game');
-    await message.channel.send(`⏳ ${failedUser} has been timed out for **1 hour**.`);
+    await member.fetch();
+
+    console.log(
+      `Timeout set for ${failedUser.tag} until: ${member.communicationDisabledUntil} (${member.communicationDisabledUntilTimestamp})`
+    );
+
+    await message.channel.send(
+      `⏳ ${failedUser} has been timed out for **${TIMEOUT_LABEL}**.`
+    );
   } catch (error) {
     console.error('Failed to timeout member:', error);
     await message.channel.send(`I tried to timeout ${failedUser}, but it failed.`);
