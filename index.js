@@ -1,10 +1,10 @@
-const { Client, GatewayIntentBits, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, ChannelType, PermissionsBitField } = require('discord.js');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
 
-const TIMEOUT_DURATION_MS = 24 * 60 * 60 * 1000;
-const TIMEOUT_LABEL = '1 day';
+const TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TIMEOUT_REASON = 'Broke the counting game';
 
 if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN environment variable.');
@@ -25,97 +25,101 @@ const client = new Client({
   ]
 });
 
-let currentCount = 0;
-let lastCounterId = null;
+const state = {
+  currentNumber: 0,
+  lastUserId: null
+};
 
 client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  console.log(`Watching counting channel: ${COUNTING_CHANNEL_ID}`);
-  console.log(`Timeout duration: ${TIMEOUT_DURATION_MS}ms (${TIMEOUT_LABEL})`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
+  console.log(`📌 Counting channel: ${COUNTING_CHANNEL_ID}`);
+  console.log(`⏳ Timeout duration: ${TIMEOUT_MS} ms`);
 });
 
 client.on('messageCreate', async (message) => {
   try {
-    if (message.author.bot) return;
-    if (!message.guild) return;
-    if (message.channel.type !== ChannelType.GuildText) return;
-    if (message.channel.id !== COUNTING_CHANNEL_ID) return;
+    if (!shouldHandleMessage(message)) return;
 
-    const raw = message.content.trim();
+    const content = message.content.trim();
+    const expectedNumber = state.currentNumber + 1;
 
-    if (!/^\d+$/.test(raw)) {
-      await handleFailure(
-        message,
-        `sent something that is not a valid whole number. The next number should be **${currentCount + 1}**.`
-      );
+    if (!/^\d+$/.test(content)) {
+      await failCount(message, `sent something invalid. You must send **${expectedNumber}**.`);
       return;
     }
 
-    const number = parseInt(raw, 10);
-    const expected = currentCount + 1;
+    const sentNumber = Number(content);
 
-    if (message.author.id === lastCounterId) {
-      await handleFailure(
-        message,
-        `counted twice in a row. The next number should be **${expected}**, but from someone else.`
-      );
+    if (message.author.id === state.lastUserId) {
+      await failCount(message, `counted twice in a row. The next number was **${expectedNumber}**, but it had to be sent by someone else.`);
       return;
     }
 
-    if (number !== expected) {
-      await handleFailure(
-        message,
-        `sent **${number}**, but the correct number was **${expected}**.`
-      );
+    if (sentNumber !== expectedNumber) {
+      await failCount(message, `sent **${sentNumber}**, but the correct number was **${expectedNumber}**.`);
       return;
     }
 
-    currentCount = number;
-    lastCounterId = message.author.id;
+    state.currentNumber = sentNumber;
+    state.lastUserId = message.author.id;
 
     await message.react('✅');
   } catch (error) {
-    console.error('Error in messageCreate event:', error);
+    console.error('Error in messageCreate:', error);
   }
 });
 
-async function handleFailure(message, reason) {
-  const failedUser = message.author;
+function shouldHandleMessage(message) {
+  if (message.author.bot) return false;
+  if (!message.guild) return false;
+  if (message.channel.type !== ChannelType.GuildText) return false;
+  if (message.channel.id !== COUNTING_CHANNEL_ID) return false;
+  return true;
+}
+
+async function failCount(message, reason) {
+  const user = message.author;
   const member = message.member;
 
-  currentCount = 0;
-  lastCounterId = null;
+  state.currentNumber = 0;
+  state.lastUserId = null;
 
   await message.channel.send(
-    `❌ ${failedUser} messed up the counting — ${reason}\n` +
-    `The count has been reset to **0**.`
+    `❌ ${user} messed up the counting — ${reason}\nThe count has been reset to **0**.`
   );
 
   if (!member) return;
 
   if (!member.moderatable) {
     await message.channel.send(
-      `I could not timeout ${failedUser} for **${TIMEOUT_LABEL}**. Make sure I have **Moderate Members** and that my role is above theirs.`
+      `I could not timeout ${user} for **24 hours**. Make sure I have **Moderate Members** permission and my role is above theirs.`
+    );
+    return;
+  }
+
+  const botMember = message.guild.members.me;
+
+  if (!botMember?.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+    await message.channel.send(
+      `I am missing the **Moderate Members** permission, so I could not timeout ${user}.`
     );
     return;
   }
 
   try {
-    console.log(`Applying timeout to ${failedUser.tag}: ${TIMEOUT_DURATION_MS}ms (${TIMEOUT_LABEL})`);
+    await member.timeout(TIMEOUT_MS, TIMEOUT_REASON);
 
-    await member.timeout(TIMEOUT_DURATION_MS, 'Broke the counting game');
-    await member.fetch();
+    const refreshedMember = await member.fetch();
+    const timeoutEndUnix = Math.floor(refreshedMember.communicationDisabledUntilTimestamp / 1000);
 
-    console.log(
-      `Timeout set for ${failedUser.tag} until: ${member.communicationDisabledUntil} (${member.communicationDisabledUntilTimestamp})`
-    );
+    console.log(`Timed out ${user.tag} until ${refreshedMember.communicationDisabledUntil}`);
 
     await message.channel.send(
-      `⏳ ${failedUser} has been timed out for **${TIMEOUT_LABEL}**.`
+      `⏳ ${user} has been timed out until <t:${timeoutEndUnix}:F>.`
     );
   } catch (error) {
     console.error('Failed to timeout member:', error);
-    await message.channel.send(`I tried to timeout ${failedUser}, but it failed.`);
+    await message.channel.send(`I tried to timeout ${user}, but it failed.`);
   }
 }
 
