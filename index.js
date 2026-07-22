@@ -51,10 +51,7 @@ client.on('messageCreate', async (message) => {
     const sentNumber = Number(content);
 
     if (message.author.id === state.lastUserId) {
-      await failCount(
-        message,
-        `counted twice in a row. The next number was **${expectedNumber}**, but it had to be sent by someone else.`
-      );
+      await failCount(message, `counted twice in a row. The next number was **${expectedNumber}**, but it had to be sent by someone else.`);
       return;
     }
 
