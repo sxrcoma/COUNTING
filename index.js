@@ -5,6 +5,7 @@ const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
 
 const TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 const TIMEOUT_REASON = 'Broke the counting game';
+const SYNC_MESSAGE_LIMIT = 100;
 
 if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN environment variable.');
@@ -27,18 +28,28 @@ const client = new Client({
 
 const state = {
   currentNumber: 0,
-  lastUserId: null
+  lastUserId: null,
+  synced: false
 };
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   console.log(`📌 Counting channel: ${COUNTING_CHANNEL_ID}`);
   console.log(`⏳ Timeout duration: ${TIMEOUT_MS} ms`);
+
+  try {
+    await syncStateFromChannel();
+    console.log(`🔄 Synced count to ${state.currentNumber} (last user: ${state.lastUserId ?? 'none'})`);
+  } catch (error) {
+    console.error('Failed to sync counting state on startup:', error);
+  }
 });
 
 client.on('messageCreate', async (message) => {
   try {
     if (!shouldHandleMessage(message)) return;
+
+    await syncStateFromChannel(message.channel);
 
     const content = message.content.trim();
     const expectedNumber = state.currentNumber + 1;
@@ -51,7 +62,10 @@ client.on('messageCreate', async (message) => {
     const sentNumber = Number(content);
 
     if (message.author.id === state.lastUserId) {
-      await failCount(message, `counted twice in a row. The next number was **${expectedNumber}**, but it had to be sent by someone else.`);
+      await failCount(
+        message,
+        `counted twice in a row. The next number was **${expectedNumber}**, but it had to be sent by someone else.`
+      );
       return;
     }
 
@@ -62,6 +76,7 @@ client.on('messageCreate', async (message) => {
 
     state.currentNumber = sentNumber;
     state.lastUserId = message.author.id;
+    state.synced = true;
 
     await message.react('✅');
   } catch (error) {
@@ -77,12 +92,49 @@ function shouldHandleMessage(message) {
   return true;
 }
 
+async function syncStateFromChannel(existingChannel = null) {
+  const channel = existingChannel ?? await client.channels.fetch(COUNTING_CHANNEL_ID);
+
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    throw new Error('Counting channel is missing or is not a guild text channel.');
+  }
+
+  const messages = await channel.messages.fetch({ limit: SYNC_MESSAGE_LIMIT, cache: false });
+
+  const orderedMessages = [...messages.values()]
+    .filter((msg) => !msg.author.bot)
+    .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+  let currentNumber = 0;
+  let lastUserId = null;
+
+  for (const msg of orderedMessages) {
+    const content = msg.content.trim();
+
+    if (!/^\d+$/.test(content)) continue;
+
+    const sentNumber = Number(content);
+    const expectedNumber = currentNumber + 1;
+
+    if (msg.author.id === lastUserId) continue;
+    if (sentNumber !== expectedNumber) continue;
+
+    currentNumber = sentNumber;
+    lastUserId = msg.author.id;
+  }
+
+  state.currentNumber = currentNumber;
+  state.lastUserId = lastUserId;
+  state.synced = true;
+}
+
 async function failCount(message, reason) {
   const user = message.author;
   const member = message.member;
 
   state.currentNumber = 0;
   state.lastUserId = null;
+  state.synced = true;
 
   await message.channel.send(
     `❌ ${user} messed up the counting — ${reason}\nThe count has been reset to **0**.`
