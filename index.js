@@ -6,6 +6,7 @@ const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
 const TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 const TIMEOUT_REASON = 'Broke the counting game';
 const SYNC_MESSAGE_LIMIT = 100;
+const RESET_MARKER = 'The count has been reset to **0**.';
 
 if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN environment variable.');
@@ -28,8 +29,7 @@ const client = new Client({
 
 const state = {
   currentNumber: 0,
-  lastUserId: null,
-  synced: false
+  lastUserId: null
 };
 
 client.once('ready', async () => {
@@ -76,7 +76,6 @@ client.on('messageCreate', async (message) => {
 
     state.currentNumber = sentNumber;
     state.lastUserId = message.author.id;
-    state.synced = true;
 
     await message.react('✅');
   } catch (error) {
@@ -101,14 +100,33 @@ async function syncStateFromChannel(existingChannel = null) {
 
   const messages = await channel.messages.fetch({ limit: SYNC_MESSAGE_LIMIT, cache: false });
 
-  const orderedMessages = [...messages.values()]
-    .filter((msg) => !msg.author.bot)
-    .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+  const orderedMessages = [...messages.values()].sort(
+    (a, b) => a.createdTimestamp - b.createdTimestamp
+  );
+
+  let startIndex = 0;
+
+  for (let i = orderedMessages.length - 1; i >= 0; i--) {
+    const msg = orderedMessages[i];
+
+    if (
+      msg.author.id === client.user.id &&
+      typeof msg.content === 'string' &&
+      msg.content.includes(RESET_MARKER)
+    ) {
+      startIndex = i + 1;
+      break;
+    }
+  }
 
   let currentNumber = 0;
   let lastUserId = null;
 
-  for (const msg of orderedMessages) {
+  for (let i = startIndex; i < orderedMessages.length; i++) {
+    const msg = orderedMessages[i];
+
+    if (msg.author.bot) continue;
+
     const content = msg.content.trim();
 
     if (!/^\d+$/.test(content)) continue;
@@ -125,7 +143,6 @@ async function syncStateFromChannel(existingChannel = null) {
 
   state.currentNumber = currentNumber;
   state.lastUserId = lastUserId;
-  state.synced = true;
 }
 
 async function failCount(message, reason) {
@@ -134,10 +151,9 @@ async function failCount(message, reason) {
 
   state.currentNumber = 0;
   state.lastUserId = null;
-  state.synced = true;
 
   await message.channel.send(
-    `❌ ${user} messed up the counting — ${reason}\nThe count has been reset to **0**.`
+    `❌ ${user} messed up the counting — ${reason}\n${RESET_MARKER}`
   );
 
   if (!member) return;
