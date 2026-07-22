@@ -5,8 +5,6 @@ const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
 
 const TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 const TIMEOUT_REASON = 'Broke the counting game';
-const SYNC_MESSAGE_LIMIT = 100;
-const RESET_MARKER = 'The count has been reset to **0**.';
 
 if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN environment variable.');
@@ -32,24 +30,15 @@ const state = {
   lastUserId: null
 };
 
-client.once('ready', async () => {
+client.once('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   console.log(`📌 Counting channel: ${COUNTING_CHANNEL_ID}`);
   console.log(`⏳ Timeout duration: ${TIMEOUT_MS} ms`);
-
-  try {
-    await syncStateFromChannel();
-    console.log(`🔄 Synced count to ${state.currentNumber} (last user: ${state.lastUserId ?? 'none'})`);
-  } catch (error) {
-    console.error('Failed to sync counting state on startup:', error);
-  }
 });
 
 client.on('messageCreate', async (message) => {
   try {
     if (!shouldHandleMessage(message)) return;
-
-    await syncStateFromChannel(message.channel);
 
     const content = message.content.trim();
     const expectedNumber = state.currentNumber + 1;
@@ -91,60 +80,6 @@ function shouldHandleMessage(message) {
   return true;
 }
 
-async function syncStateFromChannel(existingChannel = null) {
-  const channel = existingChannel ?? await client.channels.fetch(COUNTING_CHANNEL_ID);
-
-  if (!channel || channel.type !== ChannelType.GuildText) {
-    throw new Error('Counting channel is missing or is not a guild text channel.');
-  }
-
-  const messages = await channel.messages.fetch({ limit: SYNC_MESSAGE_LIMIT, cache: false });
-
-  const orderedMessages = [...messages.values()].sort(
-    (a, b) => a.createdTimestamp - b.createdTimestamp
-  );
-
-  let startIndex = 0;
-
-  for (let i = orderedMessages.length - 1; i >= 0; i--) {
-    const msg = orderedMessages[i];
-
-    if (
-      msg.author.id === client.user.id &&
-      typeof msg.content === 'string' &&
-      msg.content.includes(RESET_MARKER)
-    ) {
-      startIndex = i + 1;
-      break;
-    }
-  }
-
-  let currentNumber = 0;
-  let lastUserId = null;
-
-  for (let i = startIndex; i < orderedMessages.length; i++) {
-    const msg = orderedMessages[i];
-
-    if (msg.author.bot) continue;
-
-    const content = msg.content.trim();
-
-    if (!/^\d+$/.test(content)) continue;
-
-    const sentNumber = Number(content);
-    const expectedNumber = currentNumber + 1;
-
-    if (msg.author.id === lastUserId) continue;
-    if (sentNumber !== expectedNumber) continue;
-
-    currentNumber = sentNumber;
-    lastUserId = msg.author.id;
-  }
-
-  state.currentNumber = currentNumber;
-  state.lastUserId = lastUserId;
-}
-
 async function failCount(message, reason) {
   const user = message.author;
   const member = message.member;
@@ -153,7 +88,7 @@ async function failCount(message, reason) {
   state.lastUserId = null;
 
   await message.channel.send(
-    `❌ ${user} messed up the counting — ${reason}\n${RESET_MARKER}`
+    `❌ ${user} messed up the counting — ${reason}\nThe count has been reset to **0**.`
   );
 
   if (!member) return;
