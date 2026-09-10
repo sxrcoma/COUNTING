@@ -2,9 +2,9 @@
   "name": "railway-discord-counting-bot",
   "version": "1.0.0",
   "description": "Discord counting bot with configurable timeout punishment",
-  "main": "counting-bot.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node counting-bot.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.21.0"
