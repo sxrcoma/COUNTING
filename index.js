@@ -315,7 +315,7 @@ function shutdown() {
   }
   process.exit(0);
 }
-process.on('SIGINT', shutdown);
+process.on('SIGINT', shutdowd);
 process.on('SIGTERM', shutdown);
 
 client.login(TOKEN);
