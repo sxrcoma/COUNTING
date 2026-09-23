@@ -13,7 +13,7 @@ const path = require('path');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
-const TIMEOUT_MS = Number(process.env.TIMEOUT_MS) || 24 * 60 * 60 * 1000; // 24h default
+const TIMEOUT_MS = Number(process.env.TIMEOUT_MS) || 7 * 24 * 60 * 60 * 1000; // 1 week default
 const TIMEOUT_REASON = 'Broke the counting game';
 const ALLOW_MATH = process.env.ALLOW_MATH === 'true'; // e.g. "5+5" counts as 10
 const DELETE_WRONG_MESSAGES = process.env.DELETE_WRONG_MESSAGES === 'true';
