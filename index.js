@@ -7,9 +7,6 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const COUNTING_CHANNEL_ID = process.env.COUNTING_CHANNEL_ID;
@@ -28,13 +25,6 @@ if (!COUNTING_CHANNEL_ID) {
   process.exit(1);
 }
 
-// ---------------------------------------------------------------------------
-// Persisted state
-// ---------------------------------------------------------------------------
-// The original bot kept everything in memory, so a restart/crash silently
-// reset the count to 0 without telling anyone. This version persists to
-// disk and reloads on startup.
-
 function loadState() {
   try {
     const raw = fs.readFileSync(STATE_FILE, 'utf8');
@@ -51,7 +41,7 @@ function loadState() {
 
 let saveQueued = false;
 function saveState() {
-  // Debounce writes so a burst of counting doesn't hammer the disk.
+
   if (saveQueued) return;
   saveQueued = true;
   setImmediate(() => {
@@ -64,15 +54,6 @@ function saveState() {
 
 const state = loadState();
 
-// ---------------------------------------------------------------------------
-// Per-channel message queue
-// ---------------------------------------------------------------------------
-// discord.js can fire messageCreate for near-simultaneous messages before the
-// previous handler's awaits (react, timeout, etc.) finish. Without
-// serializing them, two people racing to post the same number can both be
-// read against the same "expectedNumber" and cause double resets or a
-// correct count being flagged wrong. This queue processes one message at a
-// time, in arrival order, per channel.
 
 const channelQueues = new Map();
 
@@ -82,10 +63,6 @@ function enqueue(channelId, task) {
   channelQueues.set(channelId, next);
   return next;
 }
-
-// ---------------------------------------------------------------------------
-// Client
-// ---------------------------------------------------------------------------
 
 const client = new Client({
   intents: [
@@ -105,7 +82,7 @@ client.once('ready', () => {
 
 client.on('messageCreate', (message) => {
   if (!shouldHandleMessage(message)) return;
-  // Serialize handling per channel to avoid race conditions.
+
   enqueue(message.channel.id, () => handleCount(message));
 });
 
@@ -117,20 +94,14 @@ function shouldHandleMessage(message) {
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// Core counting logic
-// ---------------------------------------------------------------------------
 
 function parseCount(content) {
   const trimmed = content.trim();
 
   if (ALLOW_MATH) {
-    // Only allow digits, spaces, and + - * / ( ) — never eval() arbitrary input.
     if (!/^[\d+\-*/().\s]+$/.test(trimmed)) return null;
     try {
-      // Safe-ish arithmetic evaluator without eval/Function constructor tricks:
-      // strip everything but the allowed characters (already done above) then
-      // hand off to a minimal parser.
+     
       const result = evaluateArithmetic(trimmed);
       if (result === null || !Number.isInteger(result)) return null;
       return result;
@@ -139,14 +110,10 @@ function parseCount(content) {
     }
   }
 
-  // Strict mode: plain integers only. Reject leading zeros ("007"), signs,
-  // decimals, and anything with extra whitespace/characters baked in.
   if (!/^(0|[1-9]\d*)$/.test(trimmed)) return null;
   return Number(trimmed);
 }
 
-// Minimal, safe recursive-descent arithmetic evaluator (+, -, *, /, parens).
-// Avoids eval()/new Function() entirely so user input can never run arbitrary code.
 function evaluateArithmetic(expr) {
   let i = 0;
 
@@ -303,9 +270,6 @@ async function failCount(message, reason) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Graceful shutdown — make sure the last known state is flushed to disk.
-// ---------------------------------------------------------------------------
 
 function shutdown() {
   try {
